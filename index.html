@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spoilerfri</title>
+<meta name="description" content="YouTube-afspiller uden tidslinje og videolængde, så highlights ikke afslører, hvor mange kampe der er tilbage.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Figtree:wght@400;500;600&display=swap">
+<style>
+/* Layout: one column — stage on top, transport bar under it, queue below. Nothing on the page knows the video's length. */
+:root{
+  --bg:#eef0f4; --surface:#ffffff; --line:#d5d9e2; --fg:#151a24; --muted:#5b6475;
+  --accent:#c8102e; --accent-fg:#ffffff; --stage:#07090d; --gold:#b48a2c;
+  --display:"Chakra Petch", "Arial Narrow", system-ui, sans-serif;
+  --body:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#0c0f15; --surface:#151a23; --line:#262d3a; --fg:#e8ebf1; --muted:#97a0b2;
+  --accent:#e5374f; --accent-fg:#ffffff; --stage:#000000; --gold:#d6aa4a; color-scheme:dark}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font:16px/1.5 var(--body);
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));
+  padding-block:max(16px, env(safe-area-inset-top, 0px)) max(32px, env(safe-area-inset-bottom, 0px))}
+.wrap{max-width:960px;margin:0 auto;display:grid;gap:20px}
+header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font:700 1.75rem/1 var(--display);letter-spacing:.02em;margin:0;text-transform:uppercase}
+h1 span{color:var(--accent)}
+.tag{color:var(--muted);font-size:.9rem}
+h2{font:700 .8rem/1 var(--display);text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:0}
+
+/* Stage */
+.player{background:var(--stage);border-radius:10px;overflow:hidden;position:relative}
+.stage{position:relative;aspect-ratio:16/9;max-width:100%;background:var(--stage)}
+.stage iframe,#yt{position:absolute;inset:0;width:100%;height:100%;border:0}
+/* Transparent shield: catches every pointer so YouTube never shows its hover UI, title or progress bar */
+.shield{position:absolute;inset:0;z-index:2;cursor:pointer}
+/* Top strip: hides the title YouTube flashes when playback starts */
+.topmask{position:absolute;left:0;right:0;top:0;height:18%;z-index:3;background:var(--stage);transition:opacity .6s;pointer-events:none}
+.topmask.off{opacity:0}
+/* Full cover: shown when paused, ended or not started — hides pause suggestions and end screen */
+.cover{position:absolute;inset:0;z-index:4;background:var(--stage);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:16px}
+.cover .now{font:700 clamp(1.3rem,4vw,2.2rem)/1.1 var(--display);letter-spacing:.03em;text-transform:uppercase;text-wrap:balance}
+.cover .sub{color:#aab2c3;font-size:.95rem;max-width:42ch}
+.big{appearance:none;border:0;border-radius:999px;width:76px;height:76px;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;cursor:pointer}
+.big svg{width:30px;height:30px}
+.cover .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+/* Transport bar — deliberately no timeline */
+.bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:var(--surface);border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px}
+.player{border-radius:10px 10px 0 0}
+.btn{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:600 .9rem/1 var(--body);
+  padding:9px 12px;border-radius:8px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;min-height:40px;font-variant-numeric:tabular-nums}
+.btn:hover{border-color:var(--muted)}
+.btn:focus-visible,.big:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
+.btn svg{width:18px;height:18px}
+.spacer{flex:1}
+.clock{font:600 .95rem/1 var(--display);color:var(--muted);letter-spacing:.04em;font-variant-numeric:tabular-nums;min-width:8ch}
+select{font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--fg);min-height:40px}
+
+/* Queue */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:12px}
+textarea{width:100%;min-height:96px;resize:vertical;font:15px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.hint{color:var(--muted);font-size:.88rem;margin:0}
+.hint code{font-size:.85rem}
+ol.queue{list-style:none;margin:0;padding:0;display:grid;gap:6px;counter-reset:q}
+.queue li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;border:1px solid var(--line);counter-increment:q;min-width:0}
+.queue li::before{content:counter(q);font:700 .85rem/1 var(--display);color:var(--muted);width:1.6em;text-align:center}
+.queue li.cur{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.queue .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.queue .x{border:0;background:none;color:var(--muted);cursor:pointer;font-size:1.2rem;padding:4px 8px;border-radius:6px}
+.queue .play{border:0;background:none;color:var(--fg);cursor:pointer;font-weight:600;padding:4px 8px;border-radius:6px}
+.empty{color:var(--muted);font-size:.92rem}
+.toast{position:fixed;left:50%;bottom:max(20px, env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+.keys{color:var(--muted);font-size:.85rem;margin:0}
+kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 5px;background:var(--surface);color:var(--fg)}
+.player:fullscreen{border-radius:0;display:flex;flex-direction:column;justify-content:center;background:#000}
+.player:fullscreen .stage{width:100%;max-height:100%;margin:auto}
+@media (max-width:560px){.btn .t{display:none}.clock{min-width:auto}}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Spoiler<span>fri</span></h1>
+    <span class="tag">Ingen tidslinje. Ingen videolængde. Ingen "næste video".</span>
+  </header>
+
+  <section aria-label="Afspiller">
+    <div class="player" id="player">
+      <div class="stage">
+        <div id="yt"></div>
+        <div class="shield" id="shield" title="Afspil / pause"></div>
+        <div class="topmask" id="topmask"></div>
+        <div class="cover" id="cover">
+          <div class="now" id="coverTitle">Ingen video valgt</div>
+          <div class="sub" id="coverSub">Indsæt et YouTube-link nedenfor. Videoens titel, længde og tidslinje bliver aldrig vist.</div>
+          <div class="row" id="coverActions">
+            <button class="big" id="bigPlay" aria-label="Afspil" hidden>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="bar" role="toolbar" aria-label="Styring">
+      <button class="btn primary" id="pp" aria-label="Afspil / pause">
+        <svg id="ppIcon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><span class="t" id="ppText">Afspil</span>
+      </button>
+      <button class="btn" data-skip="-60" aria-label="Tilbage 1 minut">−1 min</button>
+      <button class="btn" data-skip="-10" aria-label="Tilbage 10 sekunder">−10 s</button>
+      <button class="btn" data-skip="10" aria-label="Frem 10 sekunder">+10 s</button>
+      <button class="btn" data-skip="60" aria-label="Frem 1 minut">+1 min</button>
+      <span class="spacer"></span>
+      <span class="clock" id="clock" aria-live="off" title="Tid set indtil nu. Den samlede længde vises aldrig.">0:00</span>
+      <select id="speed" aria-label="Hastighed">
+        <option value="1">1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option>
+      </select>
+      <button class="btn" id="mute" aria-label="Lyd til/fra"><span id="muteText">Lyd</span></button>
+      <button class="btn" id="next" aria-label="Næste video"><span class="t">Næste</span>
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      <button class="btn" id="fs" aria-label="Fuld skærm">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="qh">
+    <h2 id="qh">Kø</h2>
+    <ol class="queue" id="queue"></ol>
+    <p class="empty" id="empty">Køen er tom.</p>
+    <label for="input" class="hint">Indsæt ét YouTube-link pr. linje. Skriv gerne et navn foran med en lodret streg, fx <code>HLE vs GEN | https://youtu.be/…</code></label>
+    <textarea id="input" placeholder="HLE vs GEN | https://www.youtube.com/watch?v=…&#10;https://youtu.be/…" spellcheck="false"></textarea>
+    <div class="row" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn primary" id="add">Tilføj til køen</button>
+      <button class="btn" id="share">Kopiér delelink</button>
+      <button class="btn" id="clear">Tøm køen</button>
+    </div>
+    <p class="keys"><kbd>Mellemrum</kbd> afspil/pause · <kbd>←</kbd> <kbd>→</kbd> 10 s · <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> 1 min · <kbd>N</kbd> næste · <kbd>F</kbd> fuld skærm</p>
+  </section>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const KEY = "spoilerfri-queue-v1";
+  let queue = [];          // [{id, label}]
+  let cur = -1;
+  let yt = null, ready = false, playing = false, maskTimer = null, pendingPlay = false;
+
+  // ---------- parsing ----------
+  function parseId(s){
+    s = s.trim();
+    if (/^[\w-]{11}$/.test(s)) return s;
+    try {
+      const u = new URL(s);
+      const h = u.hostname.replace(/^www\.|^m\./, "");
+      if (h === "youtu.be") return u.pathname.slice(1, 12) || null;
+      if (h.endsWith("youtube.com") || h.endsWith("youtube-nocookie.com")) {
+        if (u.searchParams.get("v")) return u.searchParams.get("v").slice(0, 11);
+        const m = u.pathname.match(/\/(?:embed|shorts|live|v)\/([\w-]{11})/);
+        if (m) return m[1];
+      }
+    } catch(e) {}
+    return null;
+  }
+  function parseLines(text){
+    const out = [];
+    text.split(/\n+/).forEach(line => {
+      line = line.trim(); if (!line) return;
+      let label = "", link = line;
+      const bar = line.lastIndexOf("|");
+      if (bar > -1) { label = line.slice(0, bar).trim(); link = line.slice(bar + 1).trim(); }
+      const id = parseId(link);
+      if (id) out.push({ id, label });
+    });
+    return out;
+  }
+  const labelOf = (item, i) => item.label || ("Video " + (i + 1));
+
+  // ---------- storage ----------
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify({queue, cur})); } catch(e){} }
+  function load(){ try { const d = JSON.parse(localStorage.getItem(KEY) || "null"); if (d && Array.isArray(d.queue)) { queue = d.queue; cur = Math.min(d.cur ?? 0, queue.length - 1); } } catch(e){} }
+
+  // URL params: ?v=ID1,ID2&n=Navn1|Navn2  (from Discord links)
+  function fromUrl(){
+    const p = new URLSearchParams(location.search);
+    const v = p.get("v"); if (!v) return false;
+    const ids = v.split(",").map(parseId).filter(Boolean);
+    const names = (p.get("n") || "").split("|");
+    if (!ids.length) return false;
+    queue = ids.map((id, i) => ({ id, label: (names[i] || "").trim() }));
+    cur = 0;
+    return true;
+  }
+
+  // ---------- UI ----------
+  function toast(msg){ const t = $("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 1800); }
+  function renderQueue(){
+    const ol = $("queue"); ol.innerHTML = "";
+    $("empty").hidden = queue.length > 0;
+    queue.forEach((item, i) => {
+      const li = document.createElement("li"); if (i === cur) li.className = "cur";
+      const lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = labelOf(item, i);
+      const play = document.createElement("button"); play.className = "play"; play.textContent = i === cur ? "Valgt" : "Vælg";
+      play.addEventListener("click", () => select(i, false));
+      const x = document.createElement("button"); x.className = "x"; x.setAttribute("aria-label", "Fjern " + labelOf(item, i)); x.textContent = "×";
+      x.addEventListener("click", () => remove(i));
+      li.append(lbl, play, x); ol.append(li);
+    });
+    $("next").disabled = cur >= queue.length - 1;
+  }
+  function showCover(state){
+    const c = $("cover"), item = queue[cur];
+    $("bigPlay").hidden = !item;
+    if (!item) { $("coverTitle").textContent = "Ingen video valgt"; $("coverSub").textContent = "Indsæt et YouTube-link nedenfor. Videoens titel, længde og tidslinje bliver aldrig vist."; c.hidden = false; return; }
+    $("coverTitle").textContent = labelOf(item, cur);
+    const subs = { ready: "Klar. Tryk for at afspille.", paused: "Pause", ended: cur < queue.length - 1 ? "Videoen er slut. Næste står klar i køen." : "Videoen er slut.", error: "" };
+    $("coverSub").textContent = subs[state] ?? "";
+    c.hidden = false;
+  }
+  function hideCover(){ $("cover").hidden = true; }
+  function setPP(isPlaying){
+    $("ppText").textContent = isPlaying ? "Pause" : "Afspil";
+    $("ppIcon").innerHTML = isPlaying ? '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>' : '<path d="M8 5v14l11-7z"/>';
+  }
+  function fmt(s){ s = Math.max(0, Math.floor(s)); const h = Math.floor(s/3600), m = Math.floor(s%3600/60), x = s%60; return (h ? h + ":" + String(m).padStart(2,"0") : m) + ":" + String(x).padStart(2,"0"); }
+
+  // ---------- player ----------
+  window.onYouTubeIframeAPIReady = function(){
+    yt = new YT.Player("yt", {
+      host: "https://www.youtube-nocookie.com",
+      playerVars: { controls: 0, disablekb: 1, rel: 0, iv_load_policy: 3, playsinline: 1, fs: 0, modestbranding: 1, cc_load_policy: 0 },
+      events: {
+        onReady: () => { ready = true; if (cur >= 0 && queue[cur]) cue(); },
+        onStateChange: onState,
+        onError: onErr
+      }
+    });
+  };
+  function cue(){
+    if (!ready || !queue[cur]) return;
+    yt.cueVideoById({ videoId: queue[cur].id });
+    try { yt.setPlaybackRate(parseFloat($("speed").value)); } catch(e){}
+    showCover("ready"); setPP(false); $("clock").textContent = "0:00";
+    if (pendingPlay) { pendingPlay = false; play(); }
+  }
+  function play(){ if (!ready || !queue[cur]) return; $("topmask").classList.remove("off"); yt.playVideo(); }
+  function pause(){ if (ready) yt.pauseVideo(); }
+  function toggle(){ if (!queue[cur]) return; playing ? pause() : play(); }
+  function onState(e){
+    const S = YT.PlayerState;
+    if (e.data === S.PLAYING) {
+      playing = true; setPP(true); hideCover();
+      clearTimeout(maskTimer); $("topmask").classList.remove("off");
+      maskTimer = setTimeout(() => $("topmask").classList.add("off"), 4000);
+    } else if (e.data === S.PAUSED) {
+      playing = false; setPP(false); showCover("paused");
+    } else if (e.data === S.ENDED) {
+      playing = false; setPP(false); showCover("ended");
+      try { yt.stopVideo(); } catch(err){}   // stops YouTube's end screen from loading underneath
+    } else if (e.data === S.BUFFERING) {
+      // keep whatever is showing
+    }
+  }
+  function onErr(e){
+    playing = false; setPP(false); showCover("error");
+    const item = queue[cur];
+    const msg = (e.data === 101 || e.data === 150) ? "Ejeren tillader ikke afspilning uden for YouTube." : "Videoen kunne ikke afspilles.";
+    $("coverSub").innerHTML = "";
+    $("coverSub").append(msg + " ");
+    if (item) { const a = document.createElement("a"); a.href = "https://www.youtube.com/watch?v=" + item.id; a.target = "_blank"; a.rel = "noopener"; a.textContent = "Åbn på YouTube (viser længden)"; a.style.color = "#fff"; $("coverSub").append(a); }
+  }
+  function skip(sec){
+    if (!ready || !queue[cur]) return;
+    const t = (yt.getCurrentTime() || 0) + sec;
+    yt.seekTo(Math.max(0, t), true);
+    toast((sec > 0 ? "+" : "−") + (Math.abs(sec) >= 60 ? Math.abs(sec)/60 + " min" : Math.abs(sec) + " s"));
+  }
+  setInterval(() => { if (ready && queue[cur]) { try { $("clock").textContent = fmt(yt.getCurrentTime() || 0); } catch(e){} } }, 500);
+
+  // ---------- queue ops ----------
+  function select(i, autoplay){
+    if (i < 0 || i >= queue.length) return;
+    cur = i; save(); renderQueue();
+    pendingPlay = !!autoplay;
+    if (ready) cue(); else showCover("ready");
+  }
+  function remove(i){
+    queue.splice(i, 1);
+    if (i < cur) cur--;
+    else if (i === cur) { cur = Math.min(cur, queue.length - 1); if (ready) { try { yt.stopVideo(); } catch(e){} } if (queue.length) select(cur, false); }
+    if (!queue.length) { cur = -1; showCover(); }
+    save(); renderQueue();
+  }
+  function add(){
+    const items = parseLines($("input").value);
+    if (!items.length) { toast("Fandt ingen YouTube-links"); return; }
+    const wasEmpty = !queue.length;
+    queue.push(...items); $("input").value = "";
+    if (wasEmpty || cur < 0) select(0, false); else { save(); renderQueue(); }
+    toast(items.length === 1 ? "1 video tilføjet" : items.length + " videoer tilføjet");
+  }
+  function shareLink(){
+    if (!queue.length) { toast("Køen er tom"); return; }
+    const u = new URL(location.href.split("?")[0].split("#")[0]);
+    u.searchParams.set("v", queue.map(q => q.id).join(","));
+    if (queue.some(q => q.label)) u.searchParams.set("n", queue.map(q => q.label || "").join("|"));
+    const s = u.toString();
+    (navigator.clipboard ? navigator.clipboard.writeText(s) : Promise.reject())
+      .then(() => toast("Link kopieret"))
+      .catch(() => { $("input").value = s; $("input").select(); toast("Markér og kopiér linket"); });
+  }
+
+  // ---------- wiring ----------
+  $("shield").addEventListener("click", toggle);
+  $("bigPlay").addEventListener("click", e => { e.stopPropagation(); play(); });
+  $("pp").addEventListener("click", toggle);
+  document.querySelectorAll("[data-skip]").forEach(b => b.addEventListener("click", () => skip(parseInt(b.dataset.skip, 10))));
+  $("speed").addEventListener("change", () => { if (ready) try { yt.setPlaybackRate(parseFloat($("speed").value)); } catch(e){} });
+  $("mute").addEventListener("click", () => { if (!ready) return; if (yt.isMuted()) { yt.unMute(); $("muteText").textContent = "Lyd"; } else { yt.mute(); $("muteText").textContent = "Lydløs"; } });
+  $("next").addEventListener("click", () => select(cur + 1, true));
+  $("fs").addEventListener("click", () => {
+    const p = $("player");
+    if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+    else if (p.requestFullscreen) p.requestFullscreen().catch(() => toast("Fuld skærm er ikke tilgængelig her"));
+    else toast("Fuld skærm er ikke tilgængelig her");
+  });
+  $("add").addEventListener("click", add);
+  $("share").addEventListener("click", shareLink);
+  $("clear").addEventListener("click", () => { queue = []; cur = -1; if (ready) try { yt.stopVideo(); } catch(e){} save(); renderQueue(); showCover(); });
+  $("input").addEventListener("keydown", e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) add(); });
+  document.addEventListener("keydown", e => {
+    if (e.target.closest("textarea, input, select")) return;
+    if (e.key === " " || e.key === "k") { e.preventDefault(); toggle(); }
+    else if (e.key === "ArrowLeft" || e.key === "j") { e.preventDefault(); skip(e.shiftKey ? -60 : -10); }
+    else if (e.key === "ArrowRight" || e.key === "l") { e.preventDefault(); skip(e.shiftKey ? 60 : 10); }
+    else if (e.key === "n") select(cur + 1, true);
+    else if (e.key === "f") $("fs").click();
+  });
+
+  // ---------- boot ----------
+  if (!fromUrl()) load();
+  if (fromUrl()) save();
+  renderQueue(); showCover(queue[cur] ? "ready" : undefined);
+  const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.append(s);
+})();
+</script>
+</body>
+</html>
