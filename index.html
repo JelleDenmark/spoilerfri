@@ -42,6 +42,9 @@ h2{font:700 .8rem/1 var(--display);text-transform:uppercase;letter-spacing:.12em
 /* Top strip: hides the title YouTube flashes when playback starts */
 .topmask{position:absolute;left:0;right:0;top:0;height:18%;z-index:3;background:var(--stage);transition:opacity .6s;pointer-events:none}
 .topmask.off{opacity:0}
+/* Shade: covers the whole video for a moment after play/seek, when YouTube flashes its own overlay (title, "more videos", logo) */
+.shade{position:absolute;inset:0;z-index:3;background:var(--stage);color:#aab2c3;display:flex;align-items:center;justify-content:center;font:600 .95rem/1 var(--display);letter-spacing:.06em;text-transform:uppercase;opacity:0;pointer-events:none;transition:opacity .25s}
+.shade.on{opacity:1;transition:none}
 /* Full cover: shown when paused, ended or not started — hides pause suggestions and end screen */
 .cover{position:absolute;inset:0;z-index:4;background:var(--stage);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:16px}
 .cover .now{font:700 clamp(1.3rem,4vw,2.2rem)/1.1 var(--display);letter-spacing:.03em;text-transform:uppercase;text-wrap:balance}
@@ -104,6 +107,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
         <div id="yt"></div>
         <div class="shield" id="shield" title="Afspil / pause"></div>
         <div class="topmask" id="topmask"></div>
+        <div class="shade" id="shade" aria-hidden="true"></div>
         <div class="cover" id="cover">
           <div class="now" id="coverTitle">Ingen video valgt</div>
           <div class="sub" id="coverSub">Indsæt et YouTube-link nedenfor. Videoens titel, længde og tidslinje bliver aldrig vist.</div>
@@ -342,6 +346,10 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     else toast("Undertekster fra");
   }
   function play(){ if (!ready || !queue[cur]) return; $("topmask").classList.remove("off"); yt.playVideo(); }
+  // YouTube shows its overlay for ~3 s after playback starts or jumps. Keep the video blacked out until it's gone.
+  let shadeTimer = null, shadeHold = false;
+  function shadeOn(label){ clearTimeout(shadeTimer); $("shade").textContent = label || ""; $("shade").classList.add("on"); }
+  function shadeOffAfter(ms){ clearTimeout(shadeTimer); shadeTimer = setTimeout(() => { if (!shadeHold) $("shade").classList.remove("on"); }, ms); }
   function pause(){ if (ready) yt.pauseVideo(); }
   function toggle(){ if (!queue[cur]) return; playing ? pause() : play(); }
   function onState(e){
@@ -349,15 +357,16 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     if (e.data === S.PLAYING) {
       applyCC();
       playing = true; setPP(true); hideCover();
+      shadeHold = false; shadeOn(); shadeOffAfter(3200);
       clearTimeout(maskTimer); $("topmask").classList.remove("off");
-      maskTimer = setTimeout(() => $("topmask").classList.add("off"), 4000);
+      maskTimer = setTimeout(() => $("topmask").classList.add("off"), 5000);
     } else if (e.data === S.PAUSED) {
       playing = false; setPP(false); showCover("paused");
     } else if (e.data === S.ENDED) {
       playing = false; setPP(false); showCover("ended");
       try { yt.stopVideo(); } catch(err){}   // stops YouTube's end screen from loading underneath
     } else if (e.data === S.BUFFERING) {
-      // keep whatever is showing
+      shadeHold = true; shadeOn("Indlæser…");
     }
   }
   function onErr(e){
@@ -371,6 +380,10 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   function skip(sec){
     if (!ready || !queue[cur]) return;
     const t = (yt.getCurrentTime() || 0) + sec;
+    shadeOn((sec > 0 ? "+" : "−") + (Math.abs(sec) >= 60 ? Math.abs(sec)/60 + " min" : Math.abs(sec) + " s"));
+    shadeOffAfter(3200);
+    clearTimeout(maskTimer); $("topmask").classList.remove("off");
+    maskTimer = setTimeout(() => $("topmask").classList.add("off"), 5000);
     yt.seekTo(Math.max(0, t), true);
     toast((sec > 0 ? "+" : "−") + (Math.abs(sec) >= 60 ? Math.abs(sec)/60 + " min" : Math.abs(sec) + " s"));
   }
