@@ -79,6 +79,11 @@ ol.queue{list-style:none;margin:0;padding:0;display:grid;gap:6px;counter-reset:q
 .toast{position:fixed;left:50%;bottom:max(20px, env(safe-area-inset-bottom, 0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:8px;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.on{opacity:1}
 .keys{color:var(--muted);font-size:.85rem;margin:0}
+.about{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 16px}
+.about summary{cursor:pointer;font-weight:600}
+.about summary:focus-visible{outline:3px solid var(--gold);outline-offset:2px;border-radius:4px}
+.about ul{margin:10px 0 2px;padding-left:1.1em;display:grid;gap:6px;color:var(--muted);max-width:68ch}
+.about strong{color:var(--fg)}
 kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:2px 5px;background:var(--surface);color:var(--fg)}
 .player:fullscreen{border-radius:0;display:flex;flex-direction:column;justify-content:center;background:#000}
 .player:fullscreen .stage{width:100%;max-height:100%;margin:auto}
@@ -132,6 +137,16 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     </div>
   </section>
+
+  <details class="about" id="about">
+    <summary>Sådan holder Spoilerfri dig fri for spoilers</summary>
+    <ul>
+      <li><strong>Ingen længde.</strong> Der er ingen tidslinje og ingen samlet tid. Du ser kun, hvor langt du er nået, så du kan ikke regne ud, hvor meget der er tilbage.</li>
+      <li><strong>Intet fra YouTube.</strong> Titel, forslag ved pause og slutskærm er dækket til, så de ikke afslører resultatet.</li>
+      <li><strong>Seriemode.</strong> Ved en serie ser du ét game ad gangen, og køen er skjult. "Næste game" findes altid. Først når du trykker efter sidste game, står der "Serien er slut", ligesom når man ser live.</li>
+      <li><strong>Linket afslører heller intet.</strong> Videoerne er krypteret ind i linket, og tomme pladser er fyldt op, så et 3-0 og et 3-2 giver lige lange links, der ligner tilfældige tegn.</li>
+    </ul>
+  </details>
 
   <p class="hint" id="seriesNote" hidden>Seriemode: du ser ét game ad gangen. Om der kommer flere games, finder du først ud af, når du trykker "Næste game".</p>
 
