@@ -136,6 +136,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
       </select>
       <button class="btn" id="mute" aria-label="Lyd til/fra"><span id="muteText">Lyd</span></button>
       <button class="btn" id="cc" aria-pressed="false" aria-label="Undertekster til/fra">CC</button>
+      <button class="btn" id="blackout" aria-pressed="true" title="Mørklægger videoen i ca. 3 sekunder efter afspil og spring, så YouTubes titel og forslag ikke ses">Mørklæg</button>
       <button class="btn" id="next" aria-label="Næste video"><span class="t" id="nextText">Næste</span>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
       <button class="btn" id="fs" aria-label="Fuld skærm">
@@ -147,7 +148,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     <summary>Sådan holder Spoilerfri dig fri for spoilers</summary>
     <ul>
       <li><strong>Ingen længde.</strong> Der er ingen tidslinje og ingen samlet tid. Du ser kun, hvor langt du er nået, så du kan ikke regne ud, hvor meget der er tilbage.</li>
-      <li><strong>Intet fra YouTube.</strong> Titel, forslag ved pause og slutskærm er dækket til, så de ikke afslører resultatet.</li>
+      <li><strong>Intet fra YouTube.</strong> Titel, forslag ved pause og slutskærm er dækket til, så de ikke afslører resultatet. "Mørklæg" skjuler også den overlay, YouTube viser i et par sekunder efter afspil og spring. Slå den fra, hvis du hellere vil se billedet med det samme.</li>
       <li><strong>Seriemode.</strong> Ved en serie ser du ét game ad gangen, og køen er skjult. "Næste game" findes altid. Først når du trykker efter sidste game, står der "Serien er slut", ligesom når man ser live.</li>
       <li><strong>Linket afslører heller intet.</strong> Videoerne er krypteret ind i linket, og tomme pladser er fyldt op, så et 3-0 og et 3-2 giver lige lange links, der ligner tilfældige tegn.</li>
     </ul>
@@ -348,7 +349,16 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   function play(){ if (!ready || !queue[cur]) return; $("topmask").classList.remove("off"); yt.playVideo(); }
   // YouTube shows its overlay for ~3 s after playback starts or jumps. Keep the video blacked out until it's gone.
   let shadeTimer = null, shadeHold = false;
-  function shadeOn(label){ clearTimeout(shadeTimer); $("shade").textContent = label || ""; $("shade").classList.add("on"); }
+  let blackout = true;     // per viewer, default on
+  try { blackout = localStorage.getItem("spoilerfri-blackout") !== "0"; } catch(e){}
+  function setBlackoutButton(){ $("blackout").setAttribute("aria-pressed", blackout ? "true" : "false"); $("blackout").classList.toggle("primary", blackout); }
+  function toggleBlackout(){
+    blackout = !blackout; setBlackoutButton();
+    try { localStorage.setItem("spoilerfri-blackout", blackout ? "1" : "0"); } catch(e){}
+    if (!blackout) { shadeHold = false; clearTimeout(shadeTimer); $("shade").classList.remove("on"); }
+    toast(blackout ? "Mørklægning til" : "Mørklægning fra");
+  }
+  function shadeOn(label){ if (!blackout) return; clearTimeout(shadeTimer); $("shade").textContent = label || ""; $("shade").classList.add("on"); }
   function shadeOffAfter(ms){ clearTimeout(shadeTimer); shadeTimer = setTimeout(() => { if (!shadeHold) $("shade").classList.remove("on"); }, ms); }
   function pause(){ if (ready) yt.pauseVideo(); }
   function toggle(){ if (!queue[cur]) return; playing ? pause() : play(); }
@@ -438,6 +448,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   document.querySelectorAll("[data-skip]").forEach(b => b.addEventListener("click", () => skip(parseInt(b.dataset.skip, 10))));
   $("speed").addEventListener("change", () => { if (ready) try { yt.setPlaybackRate(parseFloat($("speed").value)); } catch(e){} });
   $("cc").addEventListener("click", toggleCC);
+  $("blackout").addEventListener("click", toggleBlackout);
   $("mute").addEventListener("click", () => { if (!ready) return; if (yt.isMuted()) { yt.unMute(); $("muteText").textContent = "Lyd"; } else { yt.mute(); $("muteText").textContent = "Lydløs"; } });
   $("next").addEventListener("click", nextGame);
   $("coverNext").addEventListener("click", e => { e.stopPropagation(); nextGame(); });
@@ -469,7 +480,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     $("queuePanel").hidden = true; $("seriesNote").hidden = false;
     $("nextText").textContent = "Næste game"; $("next").setAttribute("aria-label", "Næste game");
   }
-  setCCButton();
+  setCCButton(); setBlackoutButton();
   renderQueue(); showCover(queue[cur] ? "ready" : undefined);
   const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.append(s);
 })();
