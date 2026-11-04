@@ -106,6 +106,8 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
             <button class="big" id="bigPlay" aria-label="Afspil" hidden>
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
             </button>
+            <button class="btn primary" id="coverNext" hidden>Næste game</button>
+            <button class="btn" id="coverRestart" hidden>Se igen fra game 1</button>
           </div>
         </div>
       </div>
@@ -124,14 +126,16 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
         <option value="1">1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option>
       </select>
       <button class="btn" id="mute" aria-label="Lyd til/fra"><span id="muteText">Lyd</span></button>
-      <button class="btn" id="next" aria-label="Næste video"><span class="t">Næste</span>
+      <button class="btn" id="next" aria-label="Næste video"><span class="t" id="nextText">Næste</span>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
       <button class="btn" id="fs" aria-label="Fuld skærm">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
     </div>
   </section>
 
-  <section class="panel" aria-labelledby="qh">
+  <p class="hint" id="seriesNote" hidden>Seriemode: du ser ét game ad gangen. Om der kommer flere games, finder du først ud af, når du trykker "Næste game".</p>
+
+  <section class="panel" id="queuePanel" aria-labelledby="qh">
     <h2 id="qh">Kø</h2>
     <ol class="queue" id="queue"></ol>
     <p class="empty" id="empty">Køen er tom.</p>
@@ -154,6 +158,8 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   let queue = [];          // [{id, label}]
   let cur = -1;
   let yt = null, ready = false, playing = false, maskTimer = null, pendingPlay = false;
+  let series = null;       // {name, max} when opened with ?g= (one game per video, queue hidden)
+  let seriesOver = false;
 
   // ---------- parsing ----------
   function parseId(s){
@@ -186,11 +192,32 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   const labelOf = (item, i) => item.label || ("Video " + (i + 1));
 
   // ---------- storage ----------
-  function save(){ try { localStorage.setItem(KEY, JSON.stringify({queue, cur})); } catch(e){} }
+  function save(){ if (series) return; try { localStorage.setItem(KEY, JSON.stringify({queue, cur})); } catch(e){} }
   function load(){ try { const d = JSON.parse(localStorage.getItem(KEY) || "null"); if (d && Array.isArray(d.queue)) { queue = d.queue; cur = Math.min(d.cur ?? 0, queue.length - 1); } } catch(e){} }
 
   // URL params: ?v=ID1,ID2&n=Navn1|Navn2  (from Discord links)
+  // Series links: ?g=<base64url of max×11 chars, unused slots padded with "."> &n=Navn
+  // Every Bo5 link has the same length, so the URL itself never reveals how many games were played.
+  function fromSeries(){
+    const p = new URLSearchParams(location.search);
+    const g = p.get("g"); if (!g) return false;
+    let raw = "";
+    try {
+      const bin = atob(g.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((g.length + 3) % 4));
+      // bytes are XOR-scrambled so the padded slots don't show up as a visible pattern in the URL
+      for (let i = 0; i < bin.length; i++) raw += String.fromCharCode(bin.charCodeAt(i) ^ ((i * 131 + 17) & 255));
+    } catch(e){ return false; }
+    const slots = raw.match(/.{11}/g) || [];
+    const ids = slots.filter(s => /^[\w-]{11}$/.test(s));
+    if (!ids.length) return false;
+    const name = (p.get("n") || "").trim();
+    series = { name, max: slots.length };
+    queue = ids.map((id, i) => ({ id, label: (name ? name + " · " : "") + "Game " + (i + 1) }));
+    cur = 0;
+    return true;
+  }
   function fromUrl(){
+    if (fromSeries()) return true;
     const p = new URLSearchParams(location.search);
     const v = p.get("v"); if (!v) return false;
     const ids = v.split(",").map(parseId).filter(Boolean);
@@ -215,10 +242,25 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
       x.addEventListener("click", () => remove(i));
       li.append(lbl, play, x); ol.append(li);
     });
-    $("next").disabled = cur >= queue.length - 1;
+    $("next").disabled = series ? seriesOver : cur >= queue.length - 1;
   }
   function showCover(state){
     const c = $("cover"), item = queue[cur];
+    $("coverNext").hidden = true; $("coverRestart").hidden = true;
+    if (series && seriesOver) {
+      $("bigPlay").hidden = true;
+      $("coverTitle").textContent = (series.name ? series.name + " · " : "") + "Serien er slut";
+      $("coverSub").textContent = "Der var ikke flere games.";
+      $("coverRestart").hidden = false; c.hidden = false; return;
+    }
+    if (series && item) {
+      $("coverTitle").textContent = labelOf(item, cur);
+      const subs = { ready: "Klar. Tryk for at afspille.", paused: "Pause", ended: "Game " + (cur + 1) + " er slut.", error: "" };
+      $("coverSub").textContent = subs[state] ?? "";
+      $("bigPlay").hidden = state === "ended";
+      $("coverNext").hidden = state !== "ended";
+      c.hidden = false; return;
+    }
     $("bigPlay").hidden = !item;
     if (!item) { $("coverTitle").textContent = "Ingen video valgt"; $("coverSub").textContent = "Indsæt et YouTube-link nedenfor. Videoens titel, længde og tidslinje bliver aldrig vist."; c.hidden = false; return; }
     $("coverTitle").textContent = labelOf(item, cur);
@@ -287,6 +329,15 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   setInterval(() => { if (ready && queue[cur]) { try { $("clock").textContent = fmt(yt.getCurrentTime() || 0); } catch(e){} } }, 500);
 
   // ---------- queue ops ----------
+  function nextGame(){
+    if (!series) { select(cur + 1, true); return; }
+    if (seriesOver) return;
+    if (cur + 1 < queue.length) { select(cur + 1, true); return; }
+    seriesOver = true; playing = false; setPP(false);
+    if (ready) { try { yt.stopVideo(); } catch(e){} }
+    renderQueue(); showCover();
+  }
+  function restartSeries(){ seriesOver = false; select(0, false); }
   function select(i, autoplay){
     if (i < 0 || i >= queue.length) return;
     cur = i; save(); renderQueue();
@@ -326,7 +377,9 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   document.querySelectorAll("[data-skip]").forEach(b => b.addEventListener("click", () => skip(parseInt(b.dataset.skip, 10))));
   $("speed").addEventListener("change", () => { if (ready) try { yt.setPlaybackRate(parseFloat($("speed").value)); } catch(e){} });
   $("mute").addEventListener("click", () => { if (!ready) return; if (yt.isMuted()) { yt.unMute(); $("muteText").textContent = "Lyd"; } else { yt.mute(); $("muteText").textContent = "Lydløs"; } });
-  $("next").addEventListener("click", () => select(cur + 1, true));
+  $("next").addEventListener("click", nextGame);
+  $("coverNext").addEventListener("click", e => { e.stopPropagation(); nextGame(); });
+  $("coverRestart").addEventListener("click", e => { e.stopPropagation(); restartSeries(); });
   $("fs").addEventListener("click", () => {
     const p = $("player");
     if (document.fullscreenElement) document.exitFullscreen().catch(()=>{});
@@ -342,13 +395,17 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     if (e.key === " " || e.key === "k") { e.preventDefault(); toggle(); }
     else if (e.key === "ArrowLeft" || e.key === "j") { e.preventDefault(); skip(e.shiftKey ? -60 : -10); }
     else if (e.key === "ArrowRight" || e.key === "l") { e.preventDefault(); skip(e.shiftKey ? 60 : 10); }
-    else if (e.key === "n") select(cur + 1, true);
+    else if (e.key === "n") nextGame();
     else if (e.key === "f") $("fs").click();
   });
 
   // ---------- boot ----------
-  if (!fromUrl()) load();
-  if (fromUrl()) save();
+  const fromLink = fromUrl();
+  if (!fromLink) load(); else save();
+  if (series) {
+    $("queuePanel").hidden = true; $("seriesNote").hidden = false;
+    $("nextText").textContent = "Næste game"; $("next").setAttribute("aria-label", "Næste game");
+  }
   renderQueue(); showCover(queue[cur] ? "ready" : undefined);
   const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.append(s);
 })();
