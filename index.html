@@ -131,6 +131,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
         <option value="1">1×</option><option value="1.25">1,25×</option><option value="1.5">1,5×</option><option value="2">2×</option>
       </select>
       <button class="btn" id="mute" aria-label="Lyd til/fra"><span id="muteText">Lyd</span></button>
+      <button class="btn" id="cc" aria-pressed="false" aria-label="Undertekster til/fra">CC</button>
       <button class="btn" id="next" aria-label="Næste video"><span class="t" id="nextText">Næste</span>
         <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
       <button class="btn" id="fs" aria-label="Fuld skærm">
@@ -161,7 +162,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
       <button class="btn" id="share">Kopiér delelink</button>
       <button class="btn" id="clear">Tøm køen</button>
     </div>
-    <p class="keys"><kbd>Mellemrum</kbd> afspil/pause · <kbd>←</kbd> <kbd>→</kbd> 10 s · <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> 1 min · <kbd>N</kbd> næste · <kbd>F</kbd> fuld skærm</p>
+    <p class="keys"><kbd>Mellemrum</kbd> afspil/pause · <kbd>←</kbd> <kbd>→</kbd> 10 s · <kbd>Shift</kbd>+<kbd>←</kbd> <kbd>→</kbd> 1 min · <kbd>N</kbd> næste · <kbd>C</kbd> undertekster · <kbd>F</kbd> fuld skærm</p>
   </section>
 </div>
 <div class="toast" id="toast" role="status"></div>
@@ -173,6 +174,8 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   let queue = [];          // [{id, label}]
   let cur = -1;
   let yt = null, ready = false, playing = false, maskTimer = null, pendingPlay = false;
+  let ccOn = false;        // remembered per viewer
+  try { ccOn = localStorage.getItem("spoilerfri-cc") === "1"; } catch(e){}
   let series = null;       // {name, max} when opened with ?g= (one game per video, queue hidden)
   let seriesOver = false;
 
@@ -309,12 +312,42 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     showCover("ready"); setPP(false); $("clock").textContent = "0:00";
     if (pendingPlay) { pendingPlay = false; play(); }
   }
+  // ---------- captions ----------
+  function setCCButton(){ $("cc").setAttribute("aria-pressed", ccOn ? "true" : "false"); $("cc").classList.toggle("primary", ccOn); }
+  function applyCC(){
+    if (!ready) return;
+    try {
+      if (ccOn) {
+        yt.loadModule("captions");
+        // the track list fills in shortly after the module loads; prefer English
+        const pickTrack = () => { try {
+          const tracks = yt.getOption("captions", "tracklist") || [];
+          const pick = tracks.find(t => /^en/.test(t.languageCode)) || tracks[0];
+          if (pick) yt.setOption("captions", "track", { languageCode: pick.languageCode });
+        } catch(e){} };
+        pickTrack(); setTimeout(pickTrack, 1000);
+      } else {
+        yt.unloadModule("captions");
+      }
+    } catch(e){}
+  }
+  function toggleCC(){
+    ccOn = !ccOn; setCCButton();
+    try { localStorage.setItem("spoilerfri-cc", ccOn ? "1" : "0"); } catch(e){}
+    applyCC();
+    if (ccOn && ready) setTimeout(() => {
+      let n = 0; try { n = (yt.getOption("captions", "tracklist") || []).length; } catch(e){}
+      toast(n ? "Undertekster til" : "Undertekster til, hvis videoen har nogen");
+    }, 800);
+    else toast("Undertekster fra");
+  }
   function play(){ if (!ready || !queue[cur]) return; $("topmask").classList.remove("off"); yt.playVideo(); }
   function pause(){ if (ready) yt.pauseVideo(); }
   function toggle(){ if (!queue[cur]) return; playing ? pause() : play(); }
   function onState(e){
     const S = YT.PlayerState;
     if (e.data === S.PLAYING) {
+      applyCC();
       playing = true; setPP(true); hideCover();
       clearTimeout(maskTimer); $("topmask").classList.remove("off");
       maskTimer = setTimeout(() => $("topmask").classList.add("off"), 4000);
@@ -391,6 +424,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
   $("pp").addEventListener("click", toggle);
   document.querySelectorAll("[data-skip]").forEach(b => b.addEventListener("click", () => skip(parseInt(b.dataset.skip, 10))));
   $("speed").addEventListener("change", () => { if (ready) try { yt.setPlaybackRate(parseFloat($("speed").value)); } catch(e){} });
+  $("cc").addEventListener("click", toggleCC);
   $("mute").addEventListener("click", () => { if (!ready) return; if (yt.isMuted()) { yt.unMute(); $("muteText").textContent = "Lyd"; } else { yt.mute(); $("muteText").textContent = "Lydløs"; } });
   $("next").addEventListener("click", nextGame);
   $("coverNext").addEventListener("click", e => { e.stopPropagation(); nextGame(); });
@@ -412,6 +446,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     else if (e.key === "ArrowRight" || e.key === "l") { e.preventDefault(); skip(e.shiftKey ? 60 : 10); }
     else if (e.key === "n") nextGame();
     else if (e.key === "f") $("fs").click();
+    else if (e.key === "c") toggleCC();
   });
 
   // ---------- boot ----------
@@ -421,6 +456,7 @@ kbd{font:600 .78rem/1 ui-monospace,monospace;border:1px solid var(--line);border
     $("queuePanel").hidden = true; $("seriesNote").hidden = false;
     $("nextText").textContent = "Næste game"; $("next").setAttribute("aria-label", "Næste game");
   }
+  setCCButton();
   renderQueue(); showCover(queue[cur] ? "ready" : undefined);
   const s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.append(s);
 })();
